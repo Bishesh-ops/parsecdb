@@ -5,4 +5,10 @@ edition = "2024"
 authors = ["Bishesh Shrestha"]
 description = "A highperformance, from-scratch vector database"
 
-[dependencies]
+[dev-dependencies]
+criterion = "0.5"
+rand = "0.8"
+
+[[bench]]
+name = "math_benches"
+harness = false
