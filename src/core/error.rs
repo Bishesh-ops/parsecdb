@@ -2,14 +2,14 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum ParsecError {
-    DimensonMismatch { expected: usize, found: usize },
+    DimensionMismatch { expected: usize, found: usize },
     VectorNotFound(u64),
 }
 
 impl fmt::Display for ParsecError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DimensonMismatch { expected, found } => {
+            Self::DimensionMismatch { expected, found } => {
                 write!(
                     f,
                     "Dimenson mismatch: expected {}, but found {}",
