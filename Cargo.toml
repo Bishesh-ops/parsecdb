@@ -2,5 +2,7 @@
 name = "parsecdb"
 version = "0.1.0"
 edition = "2024"
+authors = ["Bishesh Shrestha"]
+description = "A highperformance, from-scratch vector database"
 
 [dependencies]
