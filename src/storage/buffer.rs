@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use std::alloc::{Layout, alloc, dealloc, handle_alloc_error, realloc};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -18,6 +17,9 @@ struct AlignedFloatVec {
     capacity: usize,
     len: usize,
 }
+
+unsafe impl Send for AlignedFloatVec {}
+unsafe impl Sync for AlignedFloatVec {}
 
 impl AlignedFloatVec {
     /// Casts the raw float memory into a byte for zero-copy disk writes.
