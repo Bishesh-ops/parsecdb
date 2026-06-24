@@ -12,3 +12,6 @@ rand = "0.8"
 [[bench]]
 name = "math_benches"
 harness = false
+
+[dependencies]
+rand = "0.8"
