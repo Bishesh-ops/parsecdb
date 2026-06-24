@@ -1,4 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::alloc::{Layout, alloc, dealloc, handle_alloc_error, realloc};
+use std::fs::File;
+use std::io::{Read, Write};
 use std::ptr::{self, NonNull};
 
 use crate::core::error::{ParsecError, Result};
@@ -17,6 +20,22 @@ struct AlignedFloatVec {
 }
 
 impl AlignedFloatVec {
+    /// Casts the raw float memory into a byte for zero-copy disk writes.
+    fn as_byte_slice(&self) -> &[u8] {
+        let byte_len = self.len * std::mem::size_of::<Scalar>();
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr() as *const u8, byte_len) }
+    }
+
+    /// Casts the raw memory into a mutable byte slice to read directly from disk.
+    fn as_mut_byte_slice(&mut self, new_len: usize) -> &mut [u8] {
+        if new_len > self.capacity {
+            self.grow(new_len);
+        }
+        self.len = new_len;
+        let byte_len = self.len * std::mem::size_of::<Scalar>();
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr() as *mut u8, byte_len) }
+    }
+
     /// Allocates raw, uninitialized memory directly from the OS.
     fn with_capacity(capacity: usize) -> Self {
         if capacity == 0 {
@@ -156,5 +175,39 @@ impl SoABuffer {
     }
     pub fn get_id(&self, index: usize) -> Option<VectorId> {
         self.ids.get(index).copied()
+    }
+
+    pub fn save(&self, file: &mut File) -> std::io::Result<()> {
+        let metadata = (self.dimension, &self.ids);
+        let encoded_meta = bincode::serialize(&metadata).unwrap();
+
+        let meta_len = encoded_meta.len() as u64;
+        file.write_all(&meta_len.to_le_bytes())?;
+        file.write_all(&encoded_meta)?;
+
+        let float_bytes = self.data.as_byte_slice();
+        file.write_all(float_bytes)?;
+        Ok(())
+    }
+    pub fn load(file: &mut File) -> std::io::Result<Self> {
+        let mut meta_len_buf = [0u8; 8];
+        file.read_exact(&mut meta_len_buf)?;
+        let meta_len = u64::from_le_bytes(meta_len_buf) as usize;
+
+        let mut meta_buf = vec![0u8; meta_len];
+        file.read_exact(&mut meta_buf)?;
+        let (dimension, ids): (usize, Vec<VectorId>) = bincode::deserialize(&meta_buf).unwrap();
+
+        let total_floats = ids.len() * dimension;
+        let mut data = AlignedFloatVec::with_capacity(total_floats);
+
+        let float_bytes = data.as_mut_byte_slice(total_floats);
+        file.read_exact(float_bytes)?;
+
+        Ok(Self {
+            dimension,
+            ids,
+            data,
+        })
     }
 }

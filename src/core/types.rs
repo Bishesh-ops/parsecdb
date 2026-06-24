@@ -2,7 +2,7 @@ pub type VectorId = u64;
 pub type Scalar = f32;
 
 /// Defines the mathematical space used to calculate distances between vectors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DistanceMetric {
     /// Cosine distance
     /// Best for normalized embeddings.

@@ -1,5 +1,6 @@
 use rand::Rng;
 use std::collections::BinaryHeap;
+use std::io::{Read, Write};
 
 use crate::core::types::{DistanceMetric, Scalar, VectorId};
 use crate::index::flat::SearchResult;
@@ -8,8 +9,11 @@ use crate::storage::buffer::SoABuffer;
 use std::cmp::Reverse;
 use std::collections::HashSet;
 
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+
 /// The configuration parameters that dictate the shape of the HNSW graph.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HnswConfig {
     /// Max connextions per layer
     pub m: usize,
@@ -34,7 +38,7 @@ impl Default for HnswConfig {
 }
 
 /// A node in our flattened graph.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HnswNode {
     /// The external VectorId assigned by the user
     pub id: VectorId,
@@ -312,5 +316,49 @@ impl HnswIndex {
         }
 
         final_results
+    }
+    /// Serializes the entire database into a binary file.
+    pub fn save_to_disk(&self, path: &str) -> std::io::Result<()> {
+        let mut file = File::create(path)?;
+
+        let graph_meta = (
+            &self.metric,
+            &self.config,
+            &self.nodes,
+            &self.max_layer,
+            &self.entry_point,
+        );
+        let encoded_graph = bincode::serialize(&graph_meta).unwrap();
+
+        let graph_len = encoded_graph.len() as u64;
+        file.write_all(&graph_len.to_le_bytes())?;
+        file.write_all(&encoded_graph)?;
+
+        self.buffer.save(&mut file)?;
+        Ok(())
+    }
+    /// Loads the database from the binary file, restoring SIMD alignment.
+    pub fn load_from_disk(path: &str) -> std::io::Result<Self> {
+        let mut file = File::open(path)?;
+        let mut graph_len_buf = [0u8; 8];
+        file.read_exact(&mut graph_len_buf)?;
+
+        let graph_len = u64::from_le_bytes(graph_len_buf) as usize;
+
+        let mut graph_buf = vec![0u8; graph_len];
+        file.read_exact(&mut graph_buf)?;
+
+        let (metric, config, nodes, max_layer, entry_point) =
+            bincode::deserialize(&graph_buf).unwrap();
+        let buffer = SoABuffer::load(&mut file)?;
+
+        Ok(Self {
+            buffer,
+            metric,
+            config,
+            nodes,
+            max_layer,
+            entry_point,
+        })
     }
 }
