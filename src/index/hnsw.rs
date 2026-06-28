@@ -12,6 +12,9 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 
+use crate::storage::wal::{Wal, WalEntry};
+use std::path::Path;
+
 /// The configuration parameters that dictate the shape of the HNSW graph.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HnswConfig {
@@ -72,6 +75,7 @@ pub struct HnswIndex {
     max_layer: usize,
     /// The index of the node that serves as the entry point to the graph
     entry_point: Option<usize>,
+    wal: Option<Wal>,
 }
 
 impl HnswIndex {
@@ -88,7 +92,41 @@ impl HnswIndex {
             nodes: Vec::with_capacity(capacity),
             max_layer: 0,
             entry_point: None,
+            wal: None,
         }
+    }
+    /// The main entry point for the database. Reads the WAL to rebuild RAM,
+    /// then opens the WAL for future inserts.
+    pub fn boot<P: AsRef<Path>>(
+        dimension: usize,
+        capacity: usize,
+        metric: DistanceMetric,
+        config: HnswConfig,
+        wal_path: P,
+    ) -> std::io::Result<Self> {
+        let mut index = Self::new(dimension, capacity, metric, config);
+
+        let entries = Wal::recover(&wal_path, dimension)?;
+        let mut recovered_count = 0;
+
+        for entry in entries {
+            match entry {
+                WalEntry::Insert { id, vector } => {
+                    index.insert_memory(id, &vector).unwrap();
+                    recovered_count += 1;
+                }
+                WalEntry::Delete { .. } => {} // TODO
+            }
+        }
+
+        println!(
+            "WAL Recovery Complete: Restored {} vectors to RAM.",
+            recovered_count
+        );
+
+        index.wal = Some(Wal::new(wal_path, dimension)?);
+
+        Ok(index)
     }
 
     /// Generates a random layer based on the exponentially decaying probability.
@@ -195,7 +233,22 @@ impl HnswIndex {
         selected
     }
 
+    /// Public API for insertion. Writes to the SSD log before mutating RAM.
     pub fn insert(
+        &mut self,
+        external_id: VectorId,
+        vector: &[Scalar],
+    ) -> crate::core::error::Result<()> {
+        // 1. Durability: Append to the WAL (if it is attached)
+        if let Some(wal) = &mut self.wal {
+            wal.append_insert(external_id, vector)
+                .expect("CRITICAL: Failed to write to Write-Ahead Log. Halting.");
+        }
+
+        // 2. State: Mutate the graph in RAM
+        self.insert_memory(external_id, vector)
+    }
+    fn insert_memory(
         &mut self,
         external_id: VectorId,
         vector: &[Scalar],
@@ -359,6 +412,7 @@ impl HnswIndex {
             nodes,
             max_layer,
             entry_point,
+            wal: None,
         })
     }
 }
